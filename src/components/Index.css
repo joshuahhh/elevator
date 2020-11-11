@@ -1,0 +1,124 @@
+.Index {
+  position: absolute;
+  width: 100%;
+  top: 0;
+  bottom: 0;
+  display: flex;
+}
+
+.Index[data-theme=dark], .Index[data-theme=black] {
+  background: black;
+}
+
+.Index[data-theme=light], .Index[data-theme=white] {
+  background: white;
+}
+
+.Index-left {
+  height: 100%;
+  flex-grow: 1;
+  position: relative;
+}
+
+.Index-map {
+  width: 100%;
+  height: 100%;
+}
+
+.Index-map-overlay {
+  position: absolute;
+  pointer-events: none;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+}
+
+.Index-display {
+  position: absolute;
+  right: 0;
+  top: 0;
+  background: transparent;
+  padding: 15px;
+  line-height: 1;
+  z-index: 10;
+  text-align: right;
+  font-weight: 600;
+  font-size: 30px;
+  -webkit-text-stroke-width: 1px;
+
+}
+
+.Index[data-theme=dark], .Index[data-theme=black] {
+  color: white;
+  -webkit-text-stroke-color: black;
+}
+
+.Index[data-theme=light], .Index[data-theme=white] {
+  color: black;
+  -webkit-text-stroke-color: white;
+}
+
+.Index-right {
+  width: 200px;
+  height: 100%;
+}
+
+.Index-scheme-editor {
+  width: 100%;
+  height: 100%;
+}
+
+.Index-axis {
+  cursor: ns-resize;
+}
+
+.Index-axis-tick {
+  stroke: #aaa;
+}
+
+.Index-axis-tick-label {
+  alignment-baseline: middle;
+  text-anchor: end;
+}
+
+.Index[data-theme=dark] .Index-axis-tick-label, .Index[data-theme=black] .Index-axis-tick-label {
+  fill: white;
+}
+
+
+
+.Index-ribbon {
+  pointer-events: none;
+}
+
+
+.Tooltip {
+  display: flex;
+  align-items: center;
+}
+
+.Tooltip-x {
+  margin-right: 14px;
+  cursor: pointer;
+}
+
+.Tooltip-x:before {
+  content: '✕';
+  font-size: 28px;
+}
+
+
+.Tooltip-grid {
+  display: grid;
+  grid-template-columns: auto auto auto auto auto auto;
+}
+
+
+
+.Tooltip-swatch {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  cursor: pointer;
+}
