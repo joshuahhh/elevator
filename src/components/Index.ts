@@ -269,21 +269,107 @@ const Index: m.ClosureComponent = () => {
       Object.assign(event.data, data);
     });
 
+    const canvas = document.createElement('canvas');
+    canvas.id = 'icon-canvas';
+    canvas.width = 300 * devicePixelRatio;
+    canvas.height = 300 * devicePixelRatio;
+    const ctx = canvas.getContext("2d")!;
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    document.body.appendChild(canvas);
+
     const pointFeature = new olFeature(new olPoint([0, 0]));
     const pointSource = new olVectorSource();
     const pointLayer = new olVectorLayer({
       source: pointSource,
-      style: (feature) =>
-        new olStyle.Style({
-          image: new olStyle.Circle({
-            radius: 10,
-            fill: new olStyle.Fill({color: feature.get('fill')}),
-            stroke: new olStyle.Stroke({color: '#aaa', width: 1}),
+      style: (feature) => {
+        ctx.clearRect(0, 0, 300, 300);
+
+        ctx.save(); {
+          ctx.translate(150, 150);
+          ctx.rotate(Math.atan2(hoverGradY, hoverGradX) + Math.PI/2);
+
+          const xr = 20;
+          const yr = 16;
+
+          ctx.beginPath();
+          ctx.moveTo(-xr, 0);
+          ctx.lineTo(xr, 0);
+          ctx.lineTo(0, -yr);
+          ctx.fillStyle = colorArrayToString(hoverStop!.colorUp, alpha$());
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(-xr, 0);
+          ctx.lineTo(xr, 0);
+          ctx.lineTo(0, yr);
+          ctx.fillStyle = colorArrayToString(hoverStop!.colorDown, alpha$());
+          ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(-xr, 0);
+          ctx.lineTo(0, yr);
+          ctx.lineTo(xr, 0);
+          ctx.lineTo(0, -yr);
+          ctx.closePath();
+          ctx.strokeStyle = "#888";
+          ctx.stroke();
+
+          // ctx.beginPath();
+          // ctx.fillStyle = colorArrayToString(hoverStop!.colorDown, alpha$());
+          // ctx.arc(0, 0, 15, Math.PI/2, 3*Math.PI/2);
+          // ctx.fill();
+          // ctx.beginPath();
+          // ctx.fillStyle = colorArrayToString(hoverStop!.colorUp, alpha$());
+          // ctx.arc(0, 0, 15, Math.PI/2, 3*Math.PI/2, true);
+          // ctx.fill();
+        } ctx.restore();
+
+        if (!dragInteraction.active) {
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.font = '10px Helvetica';
+
+          const text = 'SHIFT to drag';
+
+          const [fgColor, bgColor] = {
+            light: ['rgba(0,0,0,1)', 'rgba(255,255,255,1)'],
+            white: ['rgba(0,0,0,1)', 'rgba(255,255,255,1)'],
+            dark: ['rgba(255,255,255,1)', 'rgba(0,0,0,1)'],
+            black: ['rgba(255,255,255,1)', 'rgba(0,0,0,1)'],
+          }[theme$()];
+
+          ctx.save(); {
+            ctx.filter = 'blur(1px)';
+            ctx.fillStyle = bgColor;
+            ctx.fillText(text, 150, 170);
+            ctx.fillText(text, 150, 170);
+            ctx.fillText(text, 150, 170);
+          } ctx.restore();
+
+          ctx.fillStyle = fgColor;
+          ctx.fillText(text, 150, 170);
+        }
+
+        return new olStyle.Style({
+          image: new olStyle.Icon({
+            // src: 'https://openlayers.org/en/latest/examples/data/icon.png',
+            // anchor: [0.5, 46],
+            // anchorXUnits: 'fraction',
+            // anchorYUnits: 'pixels',
+            img: canvas,
+            imgSize: [canvas.width, canvas.height],
+            // anchor: [150, 150],
+            anchor: [0.5, 0.5],
+            scale: 1 / devicePixelRatio,
           }),
-        }),
+          // new olStyle.Circle({
+          //   radius: 10,
+          //   fill: new olStyle.Fill({color: feature.get('fill')}),
+          //   stroke: new olStyle.Stroke({color: '#aaa', width: 1}),
+          // }),
+        });
+      },
     });
 
-    class Drag extends olInteraction.Pointer {
+    class ContourDrag extends olInteraction.Pointer {
       active = false;
 
       // handleEvent(mapBrowserEvent: ol.MapBrowserEvent) {
@@ -299,6 +385,7 @@ const Index: m.ClosureComponent = () => {
       handleDownEvent(mapBrowserEvent: ol.MapBrowserEvent) {
         if (hoverStop !== undefined && (mapBrowserEvent.originalEvent as MouseEvent).shiftKey) {
           this.active = true;
+          map.getTargetElement().style.cursor = 'grabbing';
           return true;
         } else {
           return false;
@@ -310,7 +397,7 @@ const Index: m.ClosureComponent = () => {
         return false;
       }
     }
-    const dragInteraction = new Drag();
+    const dragInteraction = new ContourDrag();
 
 
     const map = new ol.Map({
@@ -369,23 +456,25 @@ const Index: m.ClosureComponent = () => {
         hoverStop!.elevation = e;
         refreshStops();
         coloredElevation?.changed();
-      } else {
-        let jump = 4;
-        let iMin = Infinity;
-        let iMax = -Infinity;
-        hoverGradX = 0;
-        hoverGradY = 0;
-        for (let dx = -jump; dx <= jump; dx += jump) {
-          for (let dy = -jump; dy <= jump; dy += jump) {
-            let pixel = ctx.getImageData(x + dx, y + dy, 1, 1).data;
-            let e = pixelToElevation(pixel as any);
-            let i = getNextStopIdx(stops$(), e);
-            if (i < iMin) { iMin = i; }
-            if (i > iMax) { iMax = i; }
-            hoverGradX += e * dx;
-            hoverGradY += e * dy;
-          }
+      }
+      let jump = 4;
+      let iMin = Infinity;
+      let iMax = -Infinity;
+      hoverGradX = 0;
+      hoverGradY = 0;
+      for (let dx = -jump; dx <= jump; dx += jump) {
+        for (let dy = -jump; dy <= jump; dy += jump) {
+          let pixel = ctx.getImageData(x + dx, y + dy, 1, 1).data;
+          let e = pixelToElevation(pixel as any);
+          let i = getNextStopIdx(stops$(), e);
+          if (i < iMin) { iMin = i; }
+          if (i > iMax) { iMax = i; }
+          hoverGradX += e * dx;
+          hoverGradY += e * dy;
         }
+      }
+
+      if (!dragInteraction.active) {
         if (iMax > iMin) {
           hoverStop = stops$()[iMin];
           pointFeature.set('fill', hoverStop.colorUp);  // TODO
@@ -393,15 +482,17 @@ const Index: m.ClosureComponent = () => {
             pointSource.addFeature(pointFeature);
           }
           pointSource.changed();
+          map.getTargetElement().style.cursor = 'grab';
         } else {
           hoverStop = undefined;
           if (pointSource.hasFeature(pointFeature)) {
             pointSource.removeFeature(pointFeature);
           }
           pointSource.changed();
+          map.getTargetElement().style.cursor = '';
         }
-        pointLayer.setStyle(pointLayer.getStyle());
       }
+
       pointFeature.setGeometry(new olPoint(olEvt.coordinate));
     });
   }
@@ -431,22 +522,6 @@ const Index: m.ClosureComponent = () => {
     onMove() {
       this.setElev(yScale.invert(yScale(this.initialElev)! + this.deltaPx![1]));
       coloredElevation?.changed();
-    }
-
-    onConsummate() { dragActive = true; }
-    onUp() { dragActive = false; }
-  }
-
-  const gradientGap = 8;
-
-  class ApproachWithGradientDrag extends Drag {
-    constructor(readonly initialApproachWithGradient: boolean, readonly setApproachWithGradient: (approachWithGradient: boolean) => void) {
-      super();
-    }
-
-    onMove() {
-      const threshold = this.initialApproachWithGradient ? gradientGap / 2 : -gradientGap / 2;
-      this.setApproachWithGradient(this.deltaPx![1] < threshold);
     }
 
     onConsummate() { dragActive = true; }
@@ -557,7 +632,6 @@ const Index: m.ClosureComponent = () => {
             style: {
               background,
             },
-            title: hoverStop ? 'hold shift to drag elevation' : '',
           }),
           m('.Index-display', hoveredElevation !== undefined ? `${hoveredElevation.toFixed(0)} ft`: '')
         ),
@@ -691,6 +765,7 @@ const Index: m.ClosureComponent = () => {
             ),
           ),
           m('',
+            'alpha: ',
             m('input[type=range][min=0][max=255]', {value: alpha$(), oninput: (ev: InputEvent) => {
               alpha$(+(ev.target as HTMLInputElement).value);
               coloredElevation?.changed();
