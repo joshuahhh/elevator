@@ -77,8 +77,8 @@ const Tooltip: m.ClosureComponent<TooltipAttrs> = () => {
 
 interface Stop {
   elevation: number,
-  approachWithGradient: boolean,
-  color: [number, number, number, number],
+  colorDown: [number, number, number],
+  colorUp: [number, number, number],
   editable?: boolean,
 }
 
@@ -99,6 +99,8 @@ const tickMarginWidth = 5;
 const tickLineWidth = 10;
 const ribbonWidth = 50;
 
+const r = ribbonWidth / 2;
+
 const ribbonX = tickTextWidth + tickMarginWidth + tickLineWidth;
 
 const Index: m.ClosureComponent = () => {
@@ -111,16 +113,17 @@ const Index: m.ClosureComponent = () => {
   });
 
   let defaultStops: Stop[] = [
-    {elevation: 0, approachWithGradient: false, color: [0, 0, 0, 0], editable: false},
-    {elevation: 500, approachWithGradient: false, color: [255, 255, 0, 127]},
-    {elevation: 1000, approachWithGradient: false, color: [255, 0, 0, 127]},
   ];
   let stops$ = StoredStream('elevator:stops', defaultStops);
   function refreshStops() {
     stops$(_.sortBy(stops$(), 'elevation'));
   }
 
+  let alpha$ = StoredStream('elevator:alpha', 127);
+
   let hoverStop: Stop | undefined;
+  let hoverGradX: number;
+  let hoverGradY: number;
 
   let hoveredElevation: number | undefined;
 
@@ -130,7 +133,8 @@ const Index: m.ClosureComponent = () => {
     return ((pixel[0] * 256 + pixel[1] + pixel[2] / 256) - 32768) * 3.281;
   }
 
-  function getNextStopIdx(stops: Stop[], e: number) {
+  // returns the index of the stop higher than the given elevation, or stops.length if there is none
+  function getNextStopIdx(stops: Stop[], e: number): number {
     let i;
     for (i = 0; i < stops.length; i++) {
       if (stops[i].elevation > e) {
@@ -140,8 +144,8 @@ const Index: m.ClosureComponent = () => {
     return i;
   }
 
-  function colorArrayToString(color: number[]) {
-    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
+  function colorArrayToString(color: number[], alpha: number) {
+    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha / 255})`;
   }
 
   const backgroundTiles = new olLayerTile();
@@ -200,46 +204,56 @@ const Index: m.ClosureComponent = () => {
 
     interface RasterData {
       stops: Stop[],
+      alpha: number,
     }
     coloredElevation = new olSourceRaster({
       sources: [ elevationSource ],
       operation: function (pixels, data) {
         pixels = pixels as number[][];  // boo
 
-        const { stops } = data as RasterData;
+        const { stops, alpha } = data as RasterData;
         const pixel = pixels[0];
         const e = pixelToElevation(pixel);
 
         const i = getNextStopIdx(stops, e);
 
+        // lower than lowest stop
         if (i === 0) {
-          return [0, 0, 0, 0];
+          if (e < 0) {
+            return [0, 0, 0, 0];
+          } else {
+            const upperStop: Stop | undefined = stops[i];
+            if (upperStop) {
+              const upperColor = upperStop.colorDown;
+              const t = e / upperStop.elevation;
+              return [upperColor[0], upperColor[1], upperColor[2], t * alpha];
+            } else {
+              return [0, 0, 0, 0];
+            }
+          }
         }
 
+        // so this must be is defined!
         const lowerStop: Stop = stops[i - 1];
+
+        // but this might not be
         const upperStop: Stop | undefined = stops[i];
 
-        // if (e < lowerStop.elevation + 30) {
-        //   return [0,0,0,255];
-        // }
+        if (upperStop) {
+          const lowerColor = lowerStop.colorUp;
+          const upperColor = upperStop.colorDown;
 
-        if (upperStop && upperStop.approachWithGradient) {
           const t = (e - lowerStop.elevation) / (upperStop.elevation - lowerStop.elevation);
-          const upperColor = upperStop.color;
-          if (i === 1) {  // todo: hack: special case
-            return [upperColor[0], upperColor[1], upperColor[2], t * upperColor[3]];
-          }
-          const lowerColor = lowerStop.color;
           return [
             lowerColor[0] * (1-t) + upperColor[0] * t,
             lowerColor[1] * (1-t) + upperColor[1] * t,
             lowerColor[2] * (1-t) + upperColor[2] * t,
-            lowerColor[3] * (1-t) + upperColor[3] * t,
+            alpha,
           ];
           // return d3Interpolate.interpolateLab(lowerStop.color, upperStop.color)(0.5);
+        } else {
+          return [lowerStop.colorUp[0], lowerStop.colorUp[1], lowerStop.colorUp[2], alpha];
         }
-
-        return lowerStop.color;
       },
       lib: {
         pixelToElevation,
@@ -248,7 +262,11 @@ const Index: m.ClosureComponent = () => {
       },
     });
     coloredElevation.on('beforeoperations', function (event) {
-      (event.data as RasterData).stops = stops$();
+      const data: RasterData = {
+        stops: stops$(),
+        alpha: alpha$(),
+      };
+      Object.assign(event.data, data);
     });
 
     const pointFeature = new olFeature(new olPoint([0, 0]));
@@ -355,6 +373,8 @@ const Index: m.ClosureComponent = () => {
         let jump = 4;
         let iMin = Infinity;
         let iMax = -Infinity;
+        hoverGradX = 0;
+        hoverGradY = 0;
         for (let dx = -jump; dx <= jump; dx += jump) {
           for (let dy = -jump; dy <= jump; dy += jump) {
             let pixel = ctx.getImageData(x + dx, y + dy, 1, 1).data;
@@ -362,11 +382,13 @@ const Index: m.ClosureComponent = () => {
             let i = getNextStopIdx(stops$(), e);
             if (i < iMin) { iMin = i; }
             if (i > iMax) { iMax = i; }
+            hoverGradX += e * dx;
+            hoverGradY += e * dy;
           }
         }
-        if (iMax > iMin && iMin > 0) {
+        if (iMax > iMin) {
           hoverStop = stops$()[iMin];
-          pointFeature.set('fill', hoverStop.color);
+          pointFeature.set('fill', hoverStop.colorUp);  // TODO
           if (!pointSource.hasFeature(pointFeature)) {
             pointSource.addFeature(pointFeature);
           }
@@ -492,11 +514,10 @@ const Index: m.ClosureComponent = () => {
     const bbox = target.getBoundingClientRect();
     const e = yScale.invert(ev.clientY - bbox.top);
     const i = getNextStopIdx(stops$(), e);
-    const nextStop: Stop | undefined = stops$()[i];
     stops$().splice(i, 0, {
       elevation: e,
-      approachWithGradient: nextStop && nextStop.approachWithGradient,
-      color: [0, 0, 0, 255],
+      colorDown: [0, 0, 0],  // TODO
+      colorUp: [255, 255, 255],  // TODO
     });
     refreshStops();
     m.redraw();
@@ -505,6 +526,27 @@ const Index: m.ClosureComponent = () => {
 
   const backgroundSource = backgroundSources[theme$()];
   const background = typeof backgroundSource === 'string' ? backgroundSource : undefined;
+
+  function makeRibbon(i: number, lowerY: number, lowerColor: string, upperY: number, upperColor: string) {
+    return [
+      m('defs',
+        m('linearGradient', {id: `grad${i}`, x1: '0%', y1: '100%', x2: '0%', y2: '0%'},
+          m('stop[offset=0%]', {style: `stop-color: ${lowerColor}`}),
+          m('stop[offset=100%]', {style: `stop-color: ${upperColor}`}),
+        )
+      ),
+      m('path.Index-ribbon', {
+        d: `
+          M ${-r} ${lowerY}
+          L ${-r} ${upperY}
+          L ${r} ${upperY}
+          L ${r} ${lowerY}
+        `,
+        fill: `url(#grad${i})`,
+      }),
+    ];
+  }
+
 
   return {
     view: () => {
@@ -517,7 +559,7 @@ const Index: m.ClosureComponent = () => {
             },
             title: hoverStop ? 'hold shift to drag elevation' : '',
           }),
-          m('.Index-display', hoveredElevation !== undefined ? hoveredElevation.toFixed(0) + ' ft': '')
+          m('.Index-display', hoveredElevation !== undefined ? `${hoveredElevation.toFixed(0)} ft`: '')
         ),
         m('.Index-right',
           m('svg', {width: 200, height: 700},
@@ -543,126 +585,100 @@ const Index: m.ClosureComponent = () => {
                 stroke: 'none',
                 onclick: onclickBackground,
               }),
-              // m('line', {x1: 0, y1: 0, x2: 0, y2: scaleHeight, stroke: '#ddd'}),
-              stops$().map((stop, i) => {
-                const y = yScale(stop.elevation)!;
-                const editable = stop.editable === undefined ? true : stop.editable;
-                let fill = colorArrayToString(stop.color);
+              stops$().map((lowerStop, i) => {
+                const lowerY = yScale(lowerStop.elevation)!;
+                let lowerColor = colorArrayToString(lowerStop.colorUp, alpha$());
 
-                const r = ribbonWidth / 2;
-
-                let ribbon;
-                const nextStop = stops$()[i + 1];
-                if (nextStop) {
-                  if (i === 0) {
-                    fill = colorArrayToString([nextStop.color[0], nextStop.color[1], nextStop.color[2], 0]);
-                  }
-
-                  const nextY = yScale(nextStop.elevation)!;
-                  const nextFill = colorArrayToString(nextStop.color);
-
-                  const ribbonEndR = nextStop.approachWithGradient ? r + 2 : r + gradientGap;
-                  const ribbonEnd = nextY + Math.sqrt(ribbonEndR ** 2 - r ** 2);
-
-                  ribbon = [
-                    nextStop.approachWithGradient && (
-                      m('defs',
-                        m('linearGradient', {id: `grad${i}`, x1: '0%', y1: '100%', x2: '0%', y2: '0%'},
-                          m('stop[offset=0%]', {style: `stop-color: ${fill}`}),
-                          m('stop[offset=100%]', {style: `stop-color: ${nextFill}`}),
-                        )
-                      )
-                    ),
-                    m('path.Index-ribbon', {
-                      fill: nextStop.approachWithGradient ? `url(#grad${i})` : fill,
-                      d: `
-                        M ${-r} ${y}
-                        L ${-r} ${ribbonEnd}
-                        A ${ribbonEndR} ${ribbonEndR} 0 0 0 ${r} ${ribbonEnd}
-                        L ${r} ${y}
-                        A ${r} ${r} 0 1 0 ${-r} ${y}
-                      `,
-                    }),
-                    m('path[stroke-width=4]', {
-                      style: {cursor: 'pointer'},
-                      fill: 'none', stroke: '#ccc',
-                      d: `
-                        M ${-r} ${ribbonEnd}
-                        A ${ribbonEndR} ${ribbonEndR} 0 0 0 ${r} ${ribbonEnd}
-                      `,
-                      onmousedown: (ev: MouseEvent) => new ApproachWithGradientDrag(nextStop.approachWithGradient, (e) => {
-                        nextStop.approachWithGradient = e;
-                        refreshStops();
-                        coloredElevation?.changed();
-                      }).start(ev),
-                    }),
-                  ];
+                let ribbons = [];
+                const upperStop = stops$()[i + 1];
+                if (upperStop) {
+                  const upperY = yScale(upperStop.elevation)!;
+                  const upperColor = colorArrayToString(upperStop.colorDown, alpha$());
+                  ribbons.push(makeRibbon(i + 1, lowerY, lowerColor, upperY, upperColor));
                 } else {
-                  const ribbonEnd = 0;
+                  const upperY = 0;
+                  const upperColor = lowerColor;
+                  ribbons.push(makeRibbon(i + 1, lowerY, lowerColor, upperY, upperColor));
+                }
 
-                  ribbon = [
-                    m('path.Index-ribbon', {
-                      fill,
-                      d: `
-                        M ${-r} ${y}
-                        L ${-r} ${ribbonEnd}
-                        L ${r} ${ribbonEnd}
-                        L ${r} ${y}
-                        A ${r} ${r} 0 1 0 ${-r} ${y}
-                      `,
-                    }),
-                  ];
+                if (i === 0) {
+                  ribbons.push(makeRibbon(0, yScale(0)!, colorArrayToString(lowerStop.colorDown, 0), lowerY, colorArrayToString(lowerStop.colorDown, alpha$())));
+                }
+
+                function onmousedownTriangle(ev: MouseEvent) {
+                  new CircleDrag(lowerStop.elevation, (e) => {
+                    lowerStop.elevation = e;
+                    refreshStops();
+                    coloredElevation?.changed();
+                  }).start(ev);
+                }
+
+                function oncreateTriangle(dom: HTMLElement, dir: 'colorUp' | 'colorDown') {
+                  const tooltipContent = document.createElement('div');
+                  tippy(dom, {
+                    content: () => {
+                      m.mount(tooltipContent, {view: () => m(Tooltip, {
+                        setColor: (color) => {
+                          const rgb = d3Color.color(color)!.rgb();
+                          stops$()[i][dir] = [rgb.r, rgb.g, rgb.b];
+                          refreshStops();
+                          coloredElevation?.changed();
+                          m.redraw();
+                        },
+                        remove: () => {
+                          stops$().splice(i, 1);
+                          refreshStops();
+                          coloredElevation?.changed();
+                          m.redraw();
+                        },
+                      })});
+                      return tooltipContent;
+                    },
+                    onDestroy: () => {
+                      m.mount(tooltipContent, null);
+                    },
+                    onShow: () => {
+                      if (dragActive) { return false; }
+                    },
+                    placement: 'left',
+                    offset: [0, -10],
+                    interactive: true,
+                    appendTo: document.body,
+                  });
                 }
 
                 return [
-                  ribbon,
-                  m('circle', {
-                    style: editable && {cursor: 'pointer'},
-                    cx: 0, cy: y, r,
-                    stroke: '#ccc', fill,
-                    oncreate: ({dom}) => {
-                      if (editable) {
-                        const tooltipContent = document.createElement('div');
-                        tippy(dom, {
-                          content: () => {
-                            m.mount(tooltipContent, {view: () => m(Tooltip, {
-                              setColor: (color) => {
-                                const rgb = d3Color.color(color)!.rgb();
-                                stops$()[i].color = [rgb.r, rgb.g, rgb.b, 127];
-                                refreshStops();
-                                coloredElevation?.changed();
-                                m.redraw();
-                              },
-                              remove: () => {
-                                stops$().splice(i, 1);
-                                refreshStops();
-                                coloredElevation?.changed();
-                                m.redraw();
-                              },
-                            })});
-                            return tooltipContent;
-                          },
-                          onDestroy: () => {
-                            m.mount(tooltipContent, null);
-                          },
-                          onShow: () => {
-                            if (dragActive) { return false; }
-                          },
-                          placement: 'left',
-                          interactive: true,
-                          appendTo: document.body,
-                        });
-                      }
-                    },
-                    onmousedown: editable && ((ev: MouseEvent) => new CircleDrag(stop.elevation, (e) => {
-                      stop.elevation = e;
-                      refreshStops();
-                      coloredElevation?.changed();
-                    }).start(ev)),
-                    ondblclick: (ev: MouseEvent) => {
-                      ev.preventDefault();
-                      console.log('dblclcik', ev);
-                    },
+                  ribbons,
+                  m('path.Index-stop-triangle', {
+                    d: `
+                      M ${-r} ${lowerY}
+                      L ${r} ${lowerY}
+                      L ${0} ${lowerY+20}
+                    `,
+                    fill: colorArrayToString(lowerStop.colorDown, 255),
+                    onmousedown: onmousedownTriangle,
+                    oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorDown'),
+                  }),
+                  m('path.Index-stop-triangle', {
+                    d: `
+                      M ${-r} ${lowerY}
+                      L ${r} ${lowerY}
+                      L ${0} ${lowerY-20}
+                    `,
+                    fill: colorArrayToString(lowerStop.colorUp, 255),
+                    onmousedown: onmousedownTriangle,
+                    oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorUp'),
+                  }),
+                  m('path', {
+                    d: `
+                      M ${-r} ${lowerY}
+                      L ${0} ${lowerY-20}
+                      L ${r} ${lowerY}
+                      L ${0} ${lowerY+20}
+                      z
+                    `,
+                    fill: 'none',
+                    stroke: '#888',
                   }),
                 ];
               })
@@ -674,6 +690,12 @@ const Index: m.ClosureComponent = () => {
               Object.keys(Theme).map(theme => m('option', {value: theme}, theme))
             ),
           ),
+          m('',
+            m('input[type=range][min=0][max=255]', {value: alpha$(), oninput: (ev: InputEvent) => {
+              alpha$(+(ev.target as HTMLInputElement).value);
+              coloredElevation?.changed();
+            }})
+          )
         ),
       );
     },

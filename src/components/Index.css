@@ -90,6 +90,11 @@
 
 .Index-ribbon {
   pointer-events: none;
+  z-index: -10;
+}
+
+.Index-stop-triangle {
+  cursor: pointer;
 }
 
 
