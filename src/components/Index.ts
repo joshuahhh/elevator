@@ -25,6 +25,7 @@ import _ from 'lodash';
 
 import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
+import classNames from 'classnames';
 
 interface TooltipAttrs {
   setColor: (color: string) => void,
@@ -637,6 +638,18 @@ const Index: m.ClosureComponent = () => {
         ),
         m('.Index-right',
           m('svg', {width: 200, height: 700},
+            m('filter#blur',
+              m('feGaussianBlur', {stdDeviation: 5}),
+              m('feColorMatrix', {
+                type: 'matrix',
+                values: `
+                  1 0 0 0 0
+                  0 1 0 0 0
+                  0 0 1 0 0
+                  0 0 0 3 0
+                `,
+              }),
+            ),
             m('g.Index-axis', {
               onmousedown: (ev: MouseEvent) => new AxisDrag().start(ev),
               onwheel: onwheelAxisArea,
@@ -723,37 +736,51 @@ const Index: m.ClosureComponent = () => {
 
                 return [
                   ribbons,
-                  m('path.Index-stop-triangle', {
-                    d: `
-                      M ${-r} ${lowerY}
-                      L ${r} ${lowerY}
-                      L ${0} ${lowerY+20}
-                    `,
-                    fill: colorArrayToString(lowerStop.colorDown, 255),
-                    onmousedown: onmousedownTriangle,
-                    oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorDown'),
-                  }),
-                  m('path.Index-stop-triangle', {
-                    d: `
-                      M ${-r} ${lowerY}
-                      L ${r} ${lowerY}
-                      L ${0} ${lowerY-20}
-                    `,
-                    fill: colorArrayToString(lowerStop.colorUp, 255),
-                    onmousedown: onmousedownTriangle,
-                    oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorUp'),
-                  }),
-                  m('path', {
-                    d: `
-                      M ${-r} ${lowerY}
-                      L ${0} ${lowerY-20}
-                      L ${r} ${lowerY}
-                      L ${0} ${lowerY+20}
-                      z
-                    `,
-                    fill: 'none',
-                    stroke: '#888',
-                  }),
+                  m('g', {
+                    class: classNames({['Index-stop-hovered']: lowerStop === hoverStop}),
+                  },
+                    m('path.Index-stop-background', {
+                      d: `
+                        M ${-r} ${lowerY}
+                        L ${0} ${lowerY-20}
+                        L ${r} ${lowerY}
+                        L ${0} ${lowerY+20}
+                        z
+                      `,
+                      fill: 'white',
+                    }),
+                    m('path.Index-stop-triangle', {
+                      d: `
+                        M ${-r} ${lowerY}
+                        L ${r} ${lowerY}
+                        L ${0} ${lowerY+20}
+                      `,
+                      fill: colorArrayToString(lowerStop.colorDown, 255),
+                      onmousedown: onmousedownTriangle,
+                      oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorDown'),
+                    }),
+                    m('path.Index-stop-triangle', {
+                      d: `
+                        M ${-r} ${lowerY}
+                        L ${r} ${lowerY}
+                        L ${0} ${lowerY-20}
+                      `,
+                      fill: colorArrayToString(lowerStop.colorUp, 255),
+                      onmousedown: onmousedownTriangle,
+                      oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorUp'),
+                    }),
+                    m('path.Index-stop-outline', {
+                      d: `
+                        M ${-r} ${lowerY}
+                        L ${0} ${lowerY-20}
+                        L ${r} ${lowerY}
+                        L ${0} ${lowerY+20}
+                        z
+                      `,
+                      fill: 'none',
+                      stroke: '#888',
+                    }),
+                  )
                 ];
               })
             )

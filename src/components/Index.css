@@ -86,6 +86,10 @@
   fill: white;
 }
 
+.Index-stop-hovered .Index-stop-background {
+  filter: url(#blur);
+}
+
 
 
 .Index-ribbon {
