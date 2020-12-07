@@ -17,7 +17,7 @@ import olSourceXYZ from 'ol/source/XYZ';
 import * as olProj from 'ol/proj';
 import * as olInteraction from 'ol/interaction';
 
-import * as d3Scale from 'd3-scale';
+import * as d3Array from 'd3-array';
 import * as d3Color from 'd3-color';
 
 import { Drag } from '../Drag';
@@ -27,6 +27,34 @@ import tippy from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import classNames from 'classnames';
 
+
+function colorStringToTuple(s: string): [number, number, number] {
+  const rgb = d3Color.color(s)!.rgb();
+  return [rgb.r, rgb.g, rgb.b];
+}
+
+const colors = [
+  "#f44336",
+  "#e91e63",
+  "#9c27b0",
+  "#673ab7",
+  "#3f51b5",
+  "#2196f3",
+  "#03a9f4",
+  "#00bcd4",
+  "#009688",
+  "#4caf50",
+  "#8bc34a",
+  "#cddc39",
+  "#ffeb3b",
+  "#ffc107",
+  "#ff9800",
+  "#ff5722",
+  "#795548",
+  "#607d8b",
+];
+
+
 interface TooltipAttrs {
   setColor: (color: string) => void,
   remove: () => void,
@@ -34,27 +62,6 @@ interface TooltipAttrs {
 const Tooltip: m.ClosureComponent<TooltipAttrs> = () => {
   return {
     view: ({attrs: {setColor, remove}}) => {
-      const colors = [
-        "#f44336",
-        "#e91e63",
-        "#9c27b0",
-        "#673ab7",
-        "#3f51b5",
-        "#2196f3",
-        "#03a9f4",
-        "#00bcd4",
-        "#009688",
-        "#4caf50",
-        "#8bc34a",
-        "#cddc39",
-        "#ffeb3b",
-        "#ffc107",
-        "#ff9800",
-        "#ff5722",
-        "#795548",
-        "#607d8b",
-      ];
-
       return m('.Tooltip',
         m('.Tooltip-x', {
           onclick: () => remove(),
@@ -95,14 +102,12 @@ interface View {
   zoom: number,
 }
 
-const tickTextWidth = 50;
-const tickMarginWidth = 5;
-const tickLineWidth = 10;
+const tickTextPadding = 5;
+const tickLineLength = 10;
 const ribbonWidth = 50;
+const svgBottomPadding = 10;
 
 const r = ribbonWidth / 2;
-
-const ribbonX = tickTextWidth + tickMarginWidth + tickLineWidth;
 
 const Index: m.ClosureComponent = () => {
   const theme$ = StoredStream<Theme>('elevator:theme', Theme.light);
@@ -110,10 +115,12 @@ const Index: m.ClosureComponent = () => {
 
   const view$ = StoredStream<View>('elevator:view', {
     center: [-122.436667, 37.753333],
-    zoom: 8,
+    zoom: 10,
   });
 
   let defaultStops: Stop[] = [
+    { elevation: 660, colorDown: [156, 39, 176], colorUp: [139, 195, 74] },
+    { elevation: 1276.666666666667, colorDown: [255, 87, 34], colorUp: [0, 150, 136] },
   ];
   let stops$ = StoredStream('elevator:stops', defaultStops);
   function refreshStops() {
@@ -145,7 +152,7 @@ const Index: m.ClosureComponent = () => {
     return i;
   }
 
-  function colorArrayToString(color: number[], alpha: number) {
+  function colorTupleToString(color: [number, number, number], alpha: number) {
     return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha / 255})`;
   }
 
@@ -210,6 +217,8 @@ const Index: m.ClosureComponent = () => {
     coloredElevation = new olSourceRaster({
       sources: [ elevationSource ],
       operation: function (pixels, data) {
+        const {pixelToElevation, getNextStopIdx} = this as any;  // necessary cuz of minification
+
         pixels = pixels as number[][];  // boo
 
         const { stops, alpha } = data as RasterData;
@@ -296,13 +305,13 @@ const Index: m.ClosureComponent = () => {
           ctx.moveTo(-xr, 0);
           ctx.lineTo(xr, 0);
           ctx.lineTo(0, -yr);
-          ctx.fillStyle = colorArrayToString(hoverStop!.colorUp, alpha$());
+          ctx.fillStyle = colorTupleToString(hoverStop!.colorUp, alpha$());
           ctx.fill();
           ctx.beginPath();
           ctx.moveTo(-xr, 0);
           ctx.lineTo(xr, 0);
           ctx.lineTo(0, yr);
-          ctx.fillStyle = colorArrayToString(hoverStop!.colorDown, alpha$());
+          ctx.fillStyle = colorTupleToString(hoverStop!.colorDown, alpha$());
           ctx.fill();
           ctx.beginPath();
           ctx.moveTo(-xr, 0);
@@ -373,16 +382,6 @@ const Index: m.ClosureComponent = () => {
     class ContourDrag extends olInteraction.Pointer {
       active = false;
 
-      // handleEvent(mapBrowserEvent: ol.MapBrowserEvent) {
-      //   console.log(mapBrowserEvent);
-      //   if (mapBrowserEvent.type == olMapBrowserEventType.DBLCLICK) {
-      //     console.log('doubleclick!');
-      //     mapBrowserEvent.preventDefault();
-      //     return false;
-      //   }
-      //   return true;
-      // }
-
       handleDownEvent(mapBrowserEvent: ol.MapBrowserEvent) {
         if (hoverStop !== undefined && (mapBrowserEvent.originalEvent as MouseEvent).shiftKey) {
           this.active = true;
@@ -424,7 +423,6 @@ const Index: m.ClosureComponent = () => {
     });
 
     map.on('moveend', () => {
-      console.log('moveend');
       const view = map.getView();
       view$({
         center: olProj.toLonLat(view.getCenter()) as [number, number],
@@ -498,30 +496,23 @@ const Index: m.ClosureComponent = () => {
     });
   }
 
-  // function onmousedownMap(evt: PointerEvent) {
-  //   console.log('mousedown');
-  // }
-
-  const maxElev = 2000;
-  const scaleHeight = 600;
-
-  let yScale = d3Scale.scaleLinear([0, maxElev], [scaleHeight, 0]);
-  function yScalePixelsPerElev() {
-    const [elev1, elev2] = yScale.domain();
-    const [pix1, pix2] = yScale.range();
-    return (pix2 - pix1) / (elev2 - elev1);
+  let yPerElev = 600 / 2000;
+  function elevToY(elev: number) {
+    return (svgHeight - svgBottomPadding) - elev * yPerElev;
   }
-  // let yScale = baseYScale;
+  function yToElev(y: number) {
+    return ((svgHeight - svgBottomPadding) - y) / yPerElev;
+  }
 
   let dragActive = false;
 
-  class CircleDrag extends Drag {
+  class StopDrag extends Drag {
     constructor(readonly initialElev: number, readonly setElev: (elev: number) => void) {
       super();
     }
 
     onMove() {
-      this.setElev(yScale.invert(yScale(this.initialElev)! + this.deltaPx![1]));
+      this.setElev(yToElev(elevToY(this.initialElev) + this.deltaPx![1]));
       coloredElevation?.changed();
     }
 
@@ -530,70 +521,36 @@ const Index: m.ClosureComponent = () => {
   }
 
   class AxisDrag extends Drag {
+    draggedElev = undefined as any as number;
+
     constructor() {
       super();
     }
 
-    onMove() {
-
-      const unclampedDElev = -this.dPx[1] / yScalePixelsPerElev();
-      const [d1, d2] = yScale.domain();
-      const unclampedNewD1 = d1 + unclampedDElev;
-      const newD1 = Math.max(0, unclampedNewD1);
-      const deltaElev = newD1 - d1;
-      yScale.domain([d1 + deltaElev, d2 + deltaElev]);
-
+    onMove(ev: MouseEvent) {
+      const y = ev.clientY - svgDom.getBoundingClientRect().y;
+      yPerElev = _.clamp((elevToY(0) - y) / this.draggedElev, 0.03, 1);
       m.redraw();
-
-      // yScale.invert(yScaleinvert(this.startElev))
-      // this.setElev(yScale.invert(yScale(this.initialElev)! + this.deltaPx![1]));
-      // coloredElevation?.changed();
     }
 
-    onConsummate() { dragActive = true; }
+    onConsummate(ev: MouseEvent) {
+      const y = ev.clientY - svgDom.getBoundingClientRect().y;
+      this.draggedElev = yToElev(y);
+      dragActive = true;
+    }
     onUp() { dragActive = false; }
-  }
-
-  function onwheelAxisArea(ev: WheelEvent) {
-    // TODO: max & min scales
-    // TODO: actually, you kinda wanna zoom out even when that requires not keeping the center point constant
-
-    const y = ev.clientY - (ev.target as HTMLElement).getBoundingClientRect().top;
-    const centerElev = yScale.invert(y);
-
-    let scale = Math.exp(ev.deltaY / 60);
-    function transformElev(elev: number) {
-      return (elev - centerElev) * scale + centerElev;
-    }
-
-    const [elev1, elev2] = yScale.domain();
-    let [elev1p, elev2p] = [transformElev(elev1), transformElev(elev2)];
-    if (elev1p < 0) {
-      elev2p = elev2p - elev1p;
-      elev1p = 0;
-    }
-    const maxElevRange = 10000;
-    if (elev2p - elev1p > maxElevRange) {
-      const t = (centerElev - elev1p) / (elev2p - elev1p);
-      elev1p = centerElev - t * maxElevRange;
-      elev2p = centerElev + (1 - t) * maxElevRange;
-    }
-    yScale.domain([elev1p, elev2p]);
-
-    m.redraw();
-
-    ev.preventDefault();
   }
 
   function onclickBackground(ev: MouseEvent) {
     const target = ev.target as HTMLElement;
     const bbox = target.getBoundingClientRect();
-    const e = yScale.invert(ev.clientY - bbox.top);
+    const e = yToElev(ev.clientY - bbox.top);
     const i = getNextStopIdx(stops$(), e);
+    const [colorDown, colorUp] = _.sampleSize(colors, 2);
     stops$().splice(i, 0, {
       elevation: e,
-      colorDown: [0, 0, 0],  // TODO
-      colorUp: [255, 255, 255],  // TODO
+      colorDown: colorStringToTuple(colorDown),
+      colorUp: colorStringToTuple(colorUp),
     });
     refreshStops();
     m.redraw();
@@ -623,181 +580,194 @@ const Index: m.ClosureComponent = () => {
     ];
   }
 
+  let svgDom: HTMLElement, svgWidth: number, svgHeight: number;
 
   return {
     view: () => {
       return m('.Index', {'data-theme': theme$()},
-        m('.Index-left',
-          m('.Index-map', {
-            oncreate: oncreateMap,
-            style: {
-              background,
+        m('.Index-map', {
+          oncreate: oncreateMap,
+          style: {
+            background,
+          },
+        }),
+        m('.Index-display', hoveredElevation !== undefined ? `${hoveredElevation.toFixed(0)} ft`: ''),
+        m('.Index-controls',
+          m('svg.Index-stops-svg', {
+            oncreate: ({dom}) => {
+              svgDom = dom as HTMLElement;
+              function onResize() {
+                const bbox = dom.getBoundingClientRect();
+                svgWidth = bbox.width;
+                svgHeight = bbox.height;
+                m.redraw();
+              }
+              window.addEventListener('resize', onResize);
+              onResize();
             },
-          }),
-          m('.Index-display', hoveredElevation !== undefined ? `${hoveredElevation.toFixed(0)} ft`: '')
-        ),
-        m('.Index-right',
-          m('svg', {width: 200, height: 700},
-            m('filter#blur',
-              m('feGaussianBlur', {stdDeviation: 5}),
-              m('feColorMatrix', {
-                type: 'matrix',
-                values: `
-                  1 0 0 0 0
-                  0 1 0 0 0
-                  0 0 1 0 0
-                  0 0 0 3 0
-                `,
-              }),
-            ),
-            m('g.Index-axis', {
-              onmousedown: (ev: MouseEvent) => new AxisDrag().start(ev),
-              onwheel: onwheelAxisArea,
-            },
-              m('rect', {fill: 'transparent', width: ribbonX, height: 600, x: 0}),
-              yScale.ticks().map((tickElev) =>
-                m('g', {transform: `translate(${ribbonX}, ${yScale(tickElev)})`},
-                  m('line.Index-axis-tick', {x1: 0, y1: 0, x2: -tickLineWidth, y2: 0}),
-                  m('text.Index-axis-tick-label', {x: -tickLineWidth-tickMarginWidth}, tickElev.toLocaleString())
-                )
+          },
+            svgWidth && svgHeight && [
+              m('filter#blur',
+                m('feGaussianBlur', {stdDeviation: 5}),
+                m('feColorMatrix', {
+                  type: 'matrix',
+                  values: `
+                    1 0 0 0 0
+                    0 1 0 0 0
+                    0 0 1 0 0
+                    0 0 0 3 0
+                  `,
+                }),
               ),
-            ),
-            m('g', {transform: `translate(${ribbonX + ribbonWidth / 2}, 0)`},
-              m('rect', {
-                x: -ribbonWidth / 2,
-                y: 0,
-                width: ribbonWidth,
-                height: scaleHeight + 0,
-                fill: 'transparent',
-                stroke: 'none',
-                onclick: onclickBackground,
-              }),
-              stops$().map((lowerStop, i) => {
-                const lowerY = yScale(lowerStop.elevation)!;
-                let lowerColor = colorArrayToString(lowerStop.colorUp, alpha$());
-
-                let ribbons = [];
-                const upperStop = stops$()[i + 1];
-                if (upperStop) {
-                  const upperY = yScale(upperStop.elevation)!;
-                  const upperColor = colorArrayToString(upperStop.colorDown, alpha$());
-                  ribbons.push(makeRibbon(i + 1, lowerY, lowerColor, upperY, upperColor));
-                } else {
-                  const upperY = 0;
-                  const upperColor = lowerColor;
-                  ribbons.push(makeRibbon(i + 1, lowerY, lowerColor, upperY, upperColor));
-                }
-
-                if (i === 0) {
-                  ribbons.push(makeRibbon(0, yScale(0)!, colorArrayToString(lowerStop.colorDown, 0), lowerY, colorArrayToString(lowerStop.colorDown, alpha$())));
-                }
-
-                function onmousedownTriangle(ev: MouseEvent) {
-                  new CircleDrag(lowerStop.elevation, (e) => {
-                    lowerStop.elevation = e;
-                    refreshStops();
-                    coloredElevation?.changed();
-                  }).start(ev);
-                }
-
-                function oncreateTriangle(dom: HTMLElement, dir: 'colorUp' | 'colorDown') {
-                  const tooltipContent = document.createElement('div');
-                  tippy(dom, {
-                    content: () => {
-                      m.mount(tooltipContent, {view: () => m(Tooltip, {
-                        setColor: (color) => {
-                          const rgb = d3Color.color(color)!.rgb();
-                          stops$()[i][dir] = [rgb.r, rgb.g, rgb.b];
-                          refreshStops();
-                          coloredElevation?.changed();
-                          m.redraw();
-                        },
-                        remove: () => {
-                          stops$().splice(i, 1);
-                          refreshStops();
-                          coloredElevation?.changed();
-                          m.redraw();
-                        },
-                      })});
-                      return tooltipContent;
-                    },
-                    onDestroy: () => {
-                      m.mount(tooltipContent, null);
-                    },
-                    onShow: () => {
-                      if (dragActive) { return false; }
-                    },
-                    placement: 'left',
-                    offset: [0, -10],
-                    interactive: true,
-                    appendTo: document.body,
-                  });
-                }
-
-                return [
-                  ribbons,
-                  m('g', {
-                    class: classNames({['Index-stop-hovered']: lowerStop === hoverStop}),
-                  },
-                    m('path.Index-stop-background', {
-                      d: `
-                        M ${-r} ${lowerY}
-                        L ${0} ${lowerY-20}
-                        L ${r} ${lowerY}
-                        L ${0} ${lowerY+20}
-                        z
-                      `,
-                      fill: 'white',
-                    }),
-                    m('path.Index-stop-triangle', {
-                      d: `
-                        M ${-r} ${lowerY}
-                        L ${r} ${lowerY}
-                        L ${0} ${lowerY+20}
-                      `,
-                      fill: colorArrayToString(lowerStop.colorDown, 255),
-                      onmousedown: onmousedownTriangle,
-                      oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorDown'),
-                    }),
-                    m('path.Index-stop-triangle', {
-                      d: `
-                        M ${-r} ${lowerY}
-                        L ${r} ${lowerY}
-                        L ${0} ${lowerY-20}
-                      `,
-                      fill: colorArrayToString(lowerStop.colorUp, 255),
-                      onmousedown: onmousedownTriangle,
-                      oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorUp'),
-                    }),
-                    m('path.Index-stop-outline', {
-                      d: `
-                        M ${-r} ${lowerY}
-                        L ${0} ${lowerY-20}
-                        L ${r} ${lowerY}
-                        L ${0} ${lowerY+20}
-                        z
-                      `,
-                      fill: 'none',
-                      stroke: '#888',
-                    }),
+              m('pattern#diagonals[width=8][height=8][patternUnits=userSpaceOnUse]',
+                m('path', {
+                  d: "M-2,2 l4,-4 M0,8 l8,-8 M6,10 l4,-4",
+                  style: { stroke: '#aaa', strokeWidth: 2 },
+                }),
+              ),
+              m('g.Index-axis', {
+                onmousedown: (ev: MouseEvent) => new AxisDrag().start(ev),
+              },
+                m('rect', {fill: 'transparent', width: svgWidth / 2 - r, height: svgHeight, x: 0}),
+                d3Array.ticks(0, (svgHeight - svgBottomPadding - 50) / yPerElev, 10).map((tickElev, i) =>
+                  m('g', {transform: `translate(${svgWidth / 2 - r}, ${elevToY(tickElev)})`},
+                    m('line.Index-axis-tick', {x1: 0, y1: 0, x2: -tickLineLength, y2: 0}),
+                    m('text.Index-axis-tick-label', {x: -tickLineLength-tickTextPadding}, tickElev.toLocaleString() + (i === 0 ? ' ft' : ''))
                   )
-                ];
-              })
-            )
+                ),
+              ),
+              m('g', {transform: `translate(${svgWidth/2}, 0)`},
+                m('rect.Index-ribbon-background', {
+                  x: -ribbonWidth / 2,
+                  y: 0,
+                  width: ribbonWidth,
+                  height: svgHeight,
+                  fill: stops$().length === 0 ? 'url(#diagonals)' : 'transparent',
+                  stroke: 'none',
+                  onclick: onclickBackground,
+                }),
+                stops$().map((lowerStop, i) => {
+                  const lowerY = elevToY(lowerStop.elevation)!;
+                  let lowerColor = colorTupleToString(lowerStop.colorUp, alpha$());
+
+                  let ribbons = [];
+                  const upperStop = stops$()[i + 1];
+                  if (upperStop) {
+                    const upperY = elevToY(upperStop.elevation)!;
+                    const upperColor = colorTupleToString(upperStop.colorDown, alpha$());
+                    ribbons.push(makeRibbon(i + 1, lowerY, lowerColor, upperY, upperColor));
+                  } else {
+                    const upperY = 0;
+                    const upperColor = lowerColor;
+                    ribbons.push(makeRibbon(i + 1, lowerY, lowerColor, upperY, upperColor));
+                  }
+
+                  if (i === 0) {
+                    ribbons.push(makeRibbon(0, elevToY(0)!, colorTupleToString(lowerStop.colorDown, 0), lowerY, colorTupleToString(lowerStop.colorDown, alpha$())));
+                  }
+
+                  function onmousedownTriangle(ev: MouseEvent) {
+                    new StopDrag(lowerStop.elevation, (e) => {
+                      lowerStop.elevation = e;
+                      refreshStops();
+                      coloredElevation?.changed();
+                    }).start(ev);
+                  }
+
+                  function oncreateTriangle(dom: HTMLElement, dir: 'colorUp' | 'colorDown') {
+                    const tooltipContent = document.createElement('div');
+                    tippy(dom, {
+                      content: () => {
+                        m.mount(tooltipContent, {view: () => m(Tooltip, {
+                          setColor: (color) => {
+                            stops$()[i][dir] = colorStringToTuple(color);
+                            refreshStops();
+                            coloredElevation?.changed();
+                            m.redraw();
+                          },
+                          remove: () => {
+                            stops$().splice(i, 1);
+                            refreshStops();
+                            coloredElevation?.changed();
+                            m.redraw();
+                          },
+                        })});
+                        return tooltipContent;
+                      },
+                      onDestroy: () => {
+                        m.mount(tooltipContent, null);
+                      },
+                      onShow: () => {
+                        if (dragActive) { return false; }
+                      },
+                      placement: 'left',
+                      offset: [0, -10],
+                      interactive: true,
+                      appendTo: document.body,
+                    });
+                  }
+
+                  return [
+                    ribbons,
+                    m('g', {
+                      class: classNames({['Index-stop-hovered']: lowerStop === hoverStop}),
+                    },
+                      m('path.Index-stop-background', {
+                        d: `
+                          M ${-r} ${lowerY}
+                          L ${0} ${lowerY-20}
+                          L ${r} ${lowerY}
+                          L ${0} ${lowerY+20}
+                          z
+                        `,
+                        fill: 'white',
+                      }),
+                      m('path.Index-stop-triangle', {
+                        d: `
+                          M ${-r} ${lowerY}
+                          L ${r} ${lowerY}
+                          L ${0} ${lowerY+20}
+                        `,
+                        fill: colorTupleToString(lowerStop.colorDown, 255),
+                        onmousedown: onmousedownTriangle,
+                        oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorDown'),
+                      }),
+                      m('path.Index-stop-triangle', {
+                        d: `
+                          M ${-r} ${lowerY}
+                          L ${r} ${lowerY}
+                          L ${0} ${lowerY-20}
+                        `,
+                        fill: colorTupleToString(lowerStop.colorUp, 255),
+                        onmousedown: onmousedownTriangle,
+                        oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorUp'),
+                      }),
+                      m('path.Index-stop-outline', {
+                        d: `
+                          M ${-r} ${lowerY}
+                          L ${0} ${lowerY-20}
+                          L ${r} ${lowerY}
+                          L ${0} ${lowerY+20}
+                          z
+                        `,
+                        fill: 'none',
+                        stroke: '#888',
+                      }),
+                    ),
+                  ];
+                })
+              ),
+            ]
           ),
-          m('',
-            "theme: ",
-            m('select', {value: theme$(), onchange: (ev: InputEvent) => theme$((ev.target as HTMLSelectElement).value as Theme)},
-              Object.keys(Theme).map(theme => m('option', {value: theme}, theme))
-            ),
+          m('', 'alpha'),
+          m('input.Index-alpha-slider[type=range][min=0][max=255]', {value: alpha$(), oninput: (ev: InputEvent) => {
+            alpha$(+(ev.target as HTMLInputElement).value);
+            coloredElevation?.changed();
+          }}),
+          m('', 'theme'),
+          m('select.Index-theme-select', {value: theme$(), onchange: (ev: InputEvent) => theme$((ev.target as HTMLSelectElement).value as Theme)},
+            Object.keys(Theme).map(theme => m('option', {value: theme}, theme))
           ),
-          m('',
-            'alpha: ',
-            m('input[type=range][min=0][max=255]', {value: alpha$(), oninput: (ev: InputEvent) => {
-              alpha$(+(ev.target as HTMLInputElement).value);
-              coloredElevation?.changed();
-            }})
-          )
         ),
       );
     },

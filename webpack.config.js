@@ -3,6 +3,8 @@ const webpack = require("webpack");
 const _ = require('lodash');
 const SpeedMeasurePlugin = require("speed-measure-webpack-plugin");
 const ForkTsCheckerWebpackPlugin = require("fork-ts-checker-webpack-plugin");
+const TerserPlugin = require("terser-webpack-plugin");
+
 
 const PROD = process.env.NODE_ENV === 'production';
 

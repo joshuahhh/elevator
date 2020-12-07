@@ -3,7 +3,6 @@
   width: 100%;
   top: 0;
   bottom: 0;
-  display: flex;
 }
 
 .Index[data-theme=dark], .Index[data-theme=black] {
@@ -12,12 +11,6 @@
 
 .Index[data-theme=light], .Index[data-theme=white] {
   background: white;
-}
-
-.Index-left {
-  height: 100%;
-  flex-grow: 1;
-  position: relative;
 }
 
 .Index-map {
@@ -36,7 +29,7 @@
 
 .Index-display {
   position: absolute;
-  right: 0;
+  right: 180px;
   top: 0;
   background: transparent;
   padding: 15px;
@@ -46,7 +39,35 @@
   font-weight: 600;
   font-size: 30px;
   -webkit-text-stroke-width: 1px;
+}
 
+.Index-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  bottom: 10px;
+  border-radius: 1000px;
+  width: 180px;
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  align-items: center;
+
+  padding-bottom: 10px;
+}
+
+.Index-stops-svg {
+  flex-grow: 1;
+}
+
+.Index[data-theme=dark] .Index-controls, .Index[data-theme=black] .Index-controls {
+  background-color: #000c;
+}
+
+.Index[data-theme=light] .Index-controls, .Index[data-theme=white] .Index-controls {
+  background-color: #fffc;
 }
 
 .Index[data-theme=dark], .Index[data-theme=black] {
@@ -57,16 +78,6 @@
 .Index[data-theme=light], .Index[data-theme=white] {
   color: black;
   -webkit-text-stroke-color: white;
-}
-
-.Index-right {
-  width: 200px;
-  height: 100%;
-}
-
-.Index-scheme-editor {
-  width: 100%;
-  height: 100%;
 }
 
 .Index-axis {
@@ -90,8 +101,6 @@
   filter: url(#blur);
 }
 
-
-
 .Index-ribbon {
   pointer-events: none;
   z-index: -10;
@@ -99,6 +108,10 @@
 
 .Index-stop-triangle {
   cursor: pointer;
+}
+
+.Index-stop-triangle:focus {
+  outline: none;
 }
 
 
@@ -130,4 +143,8 @@
   height: 28px;
   border-radius: 50%;
   cursor: pointer;
+}
+
+.Index-ribbon-background {
+  cursor: cell;
 }
