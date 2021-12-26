@@ -382,7 +382,7 @@ const Index: m.ClosureComponent = () => {
     class ContourDrag extends olInteraction.Pointer {
       active = false;
 
-      handleDownEvent(mapBrowserEvent: ol.MapBrowserEvent) {
+      handleDownEvent(mapBrowserEvent: ol.MapBrowserEvent<UIEvent>) {
         if (hoverStop !== undefined && (mapBrowserEvent.originalEvent as MouseEvent).shiftKey) {
           this.active = true;
           map.getTargetElement().style.cursor = 'grabbing';
@@ -425,8 +425,8 @@ const Index: m.ClosureComponent = () => {
     map.on('moveend', () => {
       const view = map.getView();
       view$({
-        center: olProj.toLonLat(view.getCenter()) as [number, number],
-        zoom: view.getZoom(),
+        center: olProj.toLonLat(view.getCenter()!) as [number, number],
+        zoom: view.getZoom()!,
       });
     });
 
@@ -438,7 +438,7 @@ const Index: m.ClosureComponent = () => {
     });
 
 
-    map.on('pointermove', (olEvt: ol.MapBrowserEvent) => {
+    map.on('pointermove', (olEvt: ol.MapBrowserEvent<UIEvent>) => {
       // console.log(olEvt, olEvt.coordinate, olProj.toLonLat(olEvt.coordinate));
       const evt = olEvt.originalEvent as PointerEvent;
       let x = Math.round(evt.clientX);
