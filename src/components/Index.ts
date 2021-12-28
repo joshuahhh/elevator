@@ -4,7 +4,9 @@ import m from 'mithril';
 import StoredStream from '../StoredStream';
 
 import 'ol/ol.css';
-import * as ol from 'ol';
+import type * as ol from 'ol';
+import olMap from 'ol/Map';
+import olView from 'ol/View';
 import olLayerTile from 'ol/layer/Tile';
 import olLayerWebGLTile from 'ol/layer/WebGLTile';
 import olVectorLayer from 'ol/layer/Vector';
@@ -399,7 +401,7 @@ const Index: m.ClosureComponent = () => {
       },
     });
 
-    const map = new ol.Map({
+    const map = new olMap({
       target,
       interactions: olInteraction.defaults().extend([dragInteraction]),
       layers: [
@@ -428,7 +430,7 @@ const Index: m.ClosureComponent = () => {
     });
 
     view$.map((view) => {
-      map.setView(new ol.View({
+      map.setView(new olView({
         center: olProj.fromLonLat(view.center),
         zoom: view.zoom,
       }));
