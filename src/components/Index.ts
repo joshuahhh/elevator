@@ -6,13 +6,12 @@ import StoredStream from '../StoredStream';
 import 'ol/ol.css';
 import * as ol from 'ol';
 import olLayerTile from 'ol/layer/Tile';
-import olLayerImage from 'ol/layer/Image';
+import olLayerWebGLTile from 'ol/layer/WebGLTile';
 import olVectorLayer from 'ol/layer/Vector';
 import olVectorSource from 'ol/source/Vector';
 import * as olStyle from 'ol/style';
 import olPoint from 'ol/geom/Point';
 import olFeature from 'ol/Feature';
-import olSourceRaster from 'ol/source/Raster';
 import olSourceXYZ from 'ol/source/XYZ';
 import * as olProj from 'ol/proj';
 import * as olInteraction from 'ol/interaction';
@@ -109,6 +108,8 @@ const svgBottomPadding = 10;
 
 const r = ribbonWidth / 2;
 
+const maxNumStops = 10;
+
 const Index: m.ClosureComponent = () => {
   const theme$ = StoredStream<Theme>('elevator:theme', Theme.light);
   theme$.map(() => m.redraw());
@@ -125,9 +126,24 @@ const Index: m.ClosureComponent = () => {
   let stops$ = StoredStream('elevator:stops', defaultStops);
   function refreshStops() {
     stops$(_.sortBy(stops$(), 'elevation'));
+    contoursLayer?.updateStyleVariables(stopUniforms$());
   }
+  let stopUniforms$ = stops$.map((stops) => {
+    let stopUniforms: Record<string, any> = {
+      occupied_stops: stops.length,
+    };
+    for (let i = 0; i <= maxNumStops; i++) {
+      const stop: Stop = stops[Math.min(i, stops.length - 1)] || {elevation: 0, colorDown: [0,0,0,0], colorUp: [0,0,0,0]};
+      Object.assign(stopUniforms, {
+        [`e${i}`]: stop.elevation,
+        [`d${i}_0`]: stop.colorDown[0], [`d${i}_1`]: stop.colorDown[1], [`d${i}_2`]: stop.colorDown[2],
+        [`u${i}_0`]: stop.colorUp[0], [`u${i}_1`]: stop.colorUp[1], [`u${i}_2`]: stop.colorUp[2],
+      });
+    }
+    return stopUniforms;
+  });
 
-  let alpha$ = StoredStream('elevator:alpha', 127);
+  let alpha$ = StoredStream('elevator:alpha', 0.5);
 
   let hoverStop: Stop | undefined;
   let hoverGradX: number;
@@ -135,7 +151,7 @@ const Index: m.ClosureComponent = () => {
 
   let hoveredElevation: number | undefined;
 
-  let coloredElevation: olSourceRaster | undefined;
+  let contoursLayer: olLayerWebGLTile | undefined;
 
   function pixelToElevation(pixel: number[]) {
     return ((pixel[0] * 256 + pixel[1] + pixel[2] / 256) - 32768) * 3.281;
@@ -153,11 +169,11 @@ const Index: m.ClosureComponent = () => {
   }
 
   function colorTupleToString(color: [number, number, number], alpha: number) {
-    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha / 255})`;
+    return `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha})`;
   }
 
-  const backgroundTiles = new olLayerTile();
-  const foregroundTiles = new olLayerTile();
+  const backgroundTiles = new olLayerTile({});
+  const foregroundTiles = new olLayerTile({});
 
   const ext = window.devicePixelRatio > 1 ? '@2x.png' : '.png';
   const tilePixelRatio = window.devicePixelRatio > 1 ? 2 : 1;
@@ -206,78 +222,10 @@ const Index: m.ClosureComponent = () => {
       crossOrigin: 'anonymous',
       maxZoom: 14,
       imageSmoothing: false,
+      transition: 0,
     });
 
     // const interpolateLab = d3.interpolateLab;
-
-    interface RasterData {
-      stops: Stop[],
-      alpha: number,
-    }
-    coloredElevation = new olSourceRaster({
-      sources: [ elevationSource ],
-      operation: function (pixels, data) {
-        const {pixelToElevation, getNextStopIdx} = this as any;  // necessary cuz of minification
-
-        pixels = pixels as number[][];  // boo
-
-        const { stops, alpha } = data as RasterData;
-        const pixel = pixels[0];
-        const e = pixelToElevation(pixel);
-
-        const i = getNextStopIdx(stops, e);
-
-        // lower than lowest stop
-        if (i === 0) {
-          if (e < 0) {
-            return [0, 0, 0, 0];
-          } else {
-            const upperStop: Stop | undefined = stops[i];
-            if (upperStop) {
-              const upperColor = upperStop.colorDown;
-              const t = e / upperStop.elevation;
-              return [upperColor[0], upperColor[1], upperColor[2], t * alpha];
-            } else {
-              return [0, 0, 0, 0];
-            }
-          }
-        }
-
-        // so this must be is defined!
-        const lowerStop: Stop = stops[i - 1];
-
-        // but this might not be
-        const upperStop: Stop | undefined = stops[i];
-
-        if (upperStop) {
-          const lowerColor = lowerStop.colorUp;
-          const upperColor = upperStop.colorDown;
-
-          const t = (e - lowerStop.elevation) / (upperStop.elevation - lowerStop.elevation);
-          return [
-            lowerColor[0] * (1-t) + upperColor[0] * t,
-            lowerColor[1] * (1-t) + upperColor[1] * t,
-            lowerColor[2] * (1-t) + upperColor[2] * t,
-            alpha,
-          ];
-          // return d3Interpolate.interpolateLab(lowerStop.color, upperStop.color)(0.5);
-        } else {
-          return [lowerStop.colorUp[0], lowerStop.colorUp[1], lowerStop.colorUp[2], alpha];
-        }
-      },
-      lib: {
-        pixelToElevation,
-        getNextStopIdx,
-        // interpolateLab,
-      },
-    });
-    coloredElevation.on('beforeoperations', function (event) {
-      const data: RasterData = {
-        stops: stops$(),
-        alpha: alpha$(),
-      };
-      Object.assign(event.data, data);
-    });
 
     const canvas = document.createElement('canvas');
     canvas.id = 'icon-canvas';
@@ -291,7 +239,7 @@ const Index: m.ClosureComponent = () => {
     const pointSource = new olVectorSource();
     const pointLayer = new olVectorLayer({
       source: pointSource,
-      style: (feature) => {
+      style: () => {
         ctx.clearRect(0, 0, 300, 300);
 
         ctx.save(); {
@@ -399,15 +347,64 @@ const Index: m.ClosureComponent = () => {
     }
     const dragInteraction = new ContourDrag();
 
+    const elevationExpr =
+      [
+        '*',
+        [
+          '-',
+          [
+            '+',
+            ['*', 256 * 255, ['band', 1]],
+            [
+              '+',
+              ['*', 256, ['band', 2]],
+              ['band', 3],
+            ],
+          ],
+          32768,
+        ],
+        3.281,
+      ];
+    let interpolateExpr: any[] =
+      [
+        'interpolate',
+        ['linear'],
+        elevationExpr,
+        0,
+        ['color', ['var', 'd0_0'], ['var', 'd0_1'], ['var', 'd0_2'], 0],
+      ];
+    for (let i = 0; i < maxNumStops; i++) {
+      interpolateExpr.push(
+        ['var', `e${i}`],
+        ['color', ['var', `d${i}_0`], ['var', `d${i}_1`], ['var', `d${i}_2`], ['var', 'alpha']],
+        ['var', `e${i}`],
+        ['color', ['var', `u${i}_0`], ['var', `u${i}_1`], ['var', `u${i}_2`], ['var', 'alpha']],
+      );
+    }
+    let colorExpr: any[] =
+      [
+        'case',
+        ['==', ['var', 'occupied_stops'], 0],
+        ['color', 0, 0, 0, 0],
+        interpolateExpr,
+      ];
+    contoursLayer = new olLayerWebGLTile({
+      source: elevationSource,
+      style: {
+        variables: {
+          alpha: alpha$(),
+          ...stopUniforms$(),
+        },
+        color: colorExpr,
+      },
+    });
 
     const map = new ol.Map({
       target,
       interactions: olInteraction.defaults().extend([dragInteraction]),
       layers: [
         backgroundTiles,
-        new olLayerImage({
-          source: coloredElevation,
-        }),
+        contoursLayer,
         new olLayerTile({
           source: elevationSource,
           className: 'elevation-invisible',
@@ -439,7 +436,6 @@ const Index: m.ClosureComponent = () => {
 
 
     map.on('pointermove', (olEvt: ol.MapBrowserEvent<UIEvent>) => {
-      // console.log(olEvt, olEvt.coordinate, olProj.toLonLat(olEvt.coordinate));
       const evt = olEvt.originalEvent as PointerEvent;
       let x = Math.round(evt.clientX);
       let y = Math.round(evt.clientY);
@@ -454,7 +450,6 @@ const Index: m.ClosureComponent = () => {
       if (dragInteraction.active) {
         hoverStop!.elevation = e;
         refreshStops();
-        coloredElevation?.changed();
       }
       let jump = 4;
       let iMin = Infinity;
@@ -513,7 +508,6 @@ const Index: m.ClosureComponent = () => {
 
     onMove() {
       this.setElev(yToElev(elevToY(this.initialElev) + this.deltaPx![1]));
-      coloredElevation?.changed();
     }
 
     onConsummate() { dragActive = true; }
@@ -542,6 +536,11 @@ const Index: m.ClosureComponent = () => {
   }
 
   function onclickBackground(ev: MouseEvent) {
+    if (stops$().length == maxNumStops) {
+      alert(`no more than ${maxNumStops} stops allowed! sorry :/`);
+      return;
+    }
+
     const target = ev.target as HTMLElement;
     const bbox = target.getBoundingClientRect();
     const e = yToElev(ev.clientY - bbox.top);
@@ -554,7 +553,6 @@ const Index: m.ClosureComponent = () => {
     });
     refreshStops();
     m.redraw();
-    coloredElevation?.changed();
   }
 
   const backgroundSource = backgroundSources[theme$()];
@@ -670,7 +668,6 @@ const Index: m.ClosureComponent = () => {
                     new StopDrag(lowerStop.elevation, (e) => {
                       lowerStop.elevation = e;
                       refreshStops();
-                      coloredElevation?.changed();
                     }).start(ev);
                   }
 
@@ -682,13 +679,11 @@ const Index: m.ClosureComponent = () => {
                           setColor: (color) => {
                             stops$()[i][dir] = colorStringToTuple(color);
                             refreshStops();
-                            coloredElevation?.changed();
                             m.redraw();
                           },
                           remove: () => {
                             stops$().splice(i, 1);
                             refreshStops();
-                            coloredElevation?.changed();
                             m.redraw();
                           },
                         })});
@@ -728,7 +723,7 @@ const Index: m.ClosureComponent = () => {
                           L ${r} ${lowerY}
                           L ${0} ${lowerY+20}
                         `,
-                        fill: colorTupleToString(lowerStop.colorDown, 255),
+                        fill: colorTupleToString(lowerStop.colorDown, 1),
                         onmousedown: onmousedownTriangle,
                         oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorDown'),
                       }),
@@ -738,7 +733,7 @@ const Index: m.ClosureComponent = () => {
                           L ${r} ${lowerY}
                           L ${0} ${lowerY-20}
                         `,
-                        fill: colorTupleToString(lowerStop.colorUp, 255),
+                        fill: colorTupleToString(lowerStop.colorUp, 1),
                         onmousedown: onmousedownTriangle,
                         oncreate: ({dom}) => oncreateTriangle(dom as HTMLElement, 'colorUp'),
                       }),
@@ -760,9 +755,9 @@ const Index: m.ClosureComponent = () => {
             ]
           ),
           m('', 'alpha'),
-          m('input.Index-alpha-slider[type=range][min=0][max=255]', {value: alpha$(), oninput: (ev: InputEvent) => {
+          m('input.Index-alpha-slider[type=range][min=0][max=1][step=0.01]', {value: alpha$(), oninput: (ev: InputEvent) => {
             alpha$(+(ev.target as HTMLInputElement).value);
-            coloredElevation?.changed();
+            contoursLayer?.updateStyleVariables({alpha: alpha$()});
           }}),
           m('', 'theme'),
           m('select.Index-theme-select', {value: theme$(), onchange: (ev: InputEvent) => theme$((ev.target as HTMLSelectElement).value as Theme)},
