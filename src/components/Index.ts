@@ -15,6 +15,7 @@ import * as olStyle from 'ol/style';
 import olPoint from 'ol/geom/Point';
 import olFeature from 'ol/Feature';
 import olSourceXYZ from 'ol/source/XYZ';
+import { Control } from 'ol/control';
 import * as olProj from 'ol/proj';
 import * as olInteraction from 'ol/interaction';
 
@@ -55,6 +56,32 @@ const colors = [
   "#607d8b",
 ];
 
+class GeolocateControl extends Control {
+  constructor(map: any) {
+    let onClick = () => {
+      navigator.geolocation.getCurrentPosition((position) => {
+        let projectedPosition = olProj.fromLonLat([position.coords.longitude, position.coords.latitude], map.getView().getProjection());
+        map.getView().setCenter(projectedPosition);
+      });
+    }
+    super({element: GeolocateControl.buildElement(onClick) })
+  }
+
+  static buildElement(onClick: () => void): HTMLElement {
+    let button = document.createElement("button");
+    button.type = "button";
+    button.title = "Show your location";
+    button.innerHTML = '<div class="GeolocateControl-button-icon"></div>';
+
+    button.addEventListener('click', onClick);
+
+    let el = document.createElement("div")
+    el.className = "ol-unselectable ol-control GeolocateControl"
+    el.appendChild(button)
+
+    return el
+  }
+}
 
 interface TooltipAttrs {
   setColor: (color: string) => void,
@@ -415,6 +442,7 @@ const Index: m.ClosureComponent = () => {
         pointLayer,
       ],
     });
+    map.addControl(new GeolocateControl(map)),
 
     requestAnimationFrame(() => {
       const invisibleElevation = document.querySelector('.elevation-invisible canvas') as HTMLCanvasElement;
