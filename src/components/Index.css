@@ -148,3 +148,18 @@
 .Index-ribbon-background {
   cursor: cell;
 }
+
+.GeolocateControl {
+    left: 0.5em;
+    top: 4.5em;
+}
+
+/**
+ * Idiomatic "locate me" icons look like the unicode right-facing arrow, but point up-and-to-the-right.
+ */
+.GeolocateControl-button-icon::before {
+    content: "➤";
+}
+.GeolocateControl-button-icon {
+    transform: rotate(-45deg);
+}
