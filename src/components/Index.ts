@@ -144,13 +144,18 @@ const Index: m.ClosureComponent = () => {
   theme$.map(() => m.redraw());
 
   const view$ = StoredStream<View>('elevator:view', {
-    center: [-122.436667, 37.753333],
+    center: [-122.3328, 47.6061],
     zoom: 10,
   });
 
   let defaultStops: Stop[] = [
-    { elevation: 660, colorDown: [156, 39, 176], colorUp: [139, 195, 74] },
-    { elevation: 1276.666666666667, colorDown: [255, 87, 34], colorUp: [0, 150, 136] },
+    { elevation: 125, colorDown:[233,30,99], colorUp: [233,30,99] },
+    { elevation: 250, colorDown:[156,39,176], colorUp: [156,39,176] },
+    { elevation: 500, colorDown:[3,169,244], colorUp: [3,169,244] },
+    { elevation: 1000, colorDown:[205,220,57], colorUp: [205,220,57] },
+    { elevation: 2000, colorDown:[255,152,0], colorUp: [255,152,0] },
+    { elevation: 4000, colorDown:[3,169,244], colorUp: [3,169,244] },
+    { elevation: 8000, colorDown:[255,152,0], colorUp: [233,30,99] },
   ];
   let stops$ = StoredStream('elevator:stops', defaultStops);
   function refreshStops() {
