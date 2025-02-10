@@ -63,8 +63,8 @@ class GeolocateControl extends Control {
         let projectedPosition = olProj.fromLonLat([position.coords.longitude, position.coords.latitude], map.getView().getProjection());
         map.getView().setCenter(projectedPosition);
       });
-    }
-    super({element: GeolocateControl.buildElement(onClick) })
+    };
+    super({element: GeolocateControl.buildElement(onClick) });
   }
 
   static buildElement(onClick: () => void): HTMLElement {
@@ -75,11 +75,11 @@ class GeolocateControl extends Control {
 
     button.addEventListener('click', onClick);
 
-    let el = document.createElement("div")
-    el.className = "ol-unselectable ol-control GeolocateControl"
-    el.appendChild(button)
+    let el = document.createElement("div");
+    el.className = "ol-unselectable ol-control GeolocateControl";
+    el.appendChild(button);
 
-    return el
+    return el;
   }
 }
 
